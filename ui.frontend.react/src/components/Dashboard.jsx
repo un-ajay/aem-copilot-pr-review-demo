@@ -1,5 +1,4 @@
 import {
-  useCallback,
   useEffect,
   useMemo,
   useReducer,
@@ -9,12 +8,12 @@ import {
 } from "react";
 import { fetchUsers } from "../utils/api";
 import { UserPreferencesContext } from "../context/UserPreferencesContext";
-import useLocalStorage from "../hooks/useLocalStorage";
 import useDebounce from "../hooks/useDebounce";
 import UserList from "./UserList";
 
 /**
  * Reducer for async user fetching
+ * (error handling duplicated elsewhere intentionally)
  */
 function usersReducer(state, action) {
   switch (action.type) {
@@ -35,11 +34,6 @@ const initialState = {
   error: null,
 };
 
-/**
- * Dashboard
- * - intentionally large
- * - demonstrates many hooks & patterns
- */
 export default function Dashboard() {
   const [state, dispatch] = useReducer(usersReducer, initialState);
   const [search, setSearch] = useState("");
@@ -48,68 +42,65 @@ export default function Dashboard() {
   const renderCount = useRef(0);
   const { preferences, setPreferences } = useContext(UserPreferencesContext);
 
-  const [lastViewedUser, setLastViewedUser] = useLocalStorage(
-    "lastViewedUser",
-    null
-  );
+  const [lastViewedUser, setLastViewedUser] = useState(null);
 
-  renderCount.current += 1;
 
-  /**
-   * Fetch users
-   */
-  const loadUsers = useCallback(async () => {
+  useEffect(() => {
+    renderCount.current += 1;
+  });
+
+
+  useEffect(() => {
     dispatch({ type: "FETCH_START" });
-    try {
-      const data = await fetchUsers();
-      dispatch({ type: "FETCH_SUCCESS", payload: data });
-    } catch (err) {
-      dispatch({ type: "FETCH_ERROR", error: err.message });
-    }
+
+    fetchUsers()
+      .then((data) => {
+        dispatch({ type: "FETCH_SUCCESS", payload: data });
+      })
+      .catch((error) => {
+        dispatch({ type: "FETCH_ERROR", error: error.message });
+      });
   }, []);
 
-  /**
-   * Initial load
-   */
-  useEffect(() => {
-    loadUsers();
-  }, [loadUsers]);
 
-  /**
-   * Persist preferences to localStorage
-   */
   useEffect(() => {
-    localStorage.setItem("userPreferences", JSON.stringify(preferences));
+    localStorage.setItem(
+      "userPreferences",
+      JSON.stringify(preferences)
+    );
   }, [preferences]);
 
-  /**
-   * Derived filtered users
-   */
-  const filteredUsers = useMemo(() => {
-    return state.users.filter((user) =>
-      user.name.toLowerCase().includes(debouncedSearch.toLowerCase())
+  useEffect(() => {
+    localStorage.setItem(
+      "lastViewedUser",
+      JSON.stringify(lastViewedUser)
     );
+  }, [lastViewedUser]);
+
+
+  const filteredUsers = useMemo(() => {
+    return state.users.filter((user) => {
+      return user.name
+        .toLowerCase()
+        .includes(debouncedSearch.toLowerCase());
+    });
   }, [state.users, debouncedSearch]);
 
-  /**
-   * Event handlers
-   */
-  const handleSearchChange = useCallback((e) => {
-    setSearch(e.target.value);
-  }, []);
 
-  const handleUserSelect = useCallback(
-    (user) => {
-      setLastViewedUser(user.id);
-    },
-    [setLastViewedUser]
-  );
+  const handleUserClick = (user) => {
+    setLastViewedUser(user.id);
+    localStorage.setItem(
+      "lastViewedUser",
+      JSON.stringify(user.id)
+    );
+  };
+
 
   const toggleDarkMode = () => {
-    setPreferences((prev) => ({
-      ...prev,
-      darkMode: !prev.darkMode,
-    }));
+    setPreferences({
+      ...preferences,
+      darkMode: !preferences.darkMode,
+    });
   };
 
   if (state.loading) {
@@ -124,6 +115,7 @@ export default function Dashboard() {
     <section>
       <header>
         <h1>User Dashboard</h1>
+
         <button onClick={toggleDarkMode}>
           Toggle {preferences.darkMode ? "Light" : "Dark"} Mode
         </button>
@@ -135,12 +127,12 @@ export default function Dashboard() {
         type="search"
         placeholder="Search users"
         value={search}
-        onChange={handleSearchChange}
+        onChange={(e) => setSearch(e.target.value)}
       />
 
       <UserList
         users={filteredUsers}
-        onUserSelect={handleUserSelect}
+        onUserSelect={handleUserClick}
         lastViewedUser={lastViewedUser}
       />
     </section>
